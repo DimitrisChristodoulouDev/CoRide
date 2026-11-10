@@ -23,10 +23,10 @@ npm start
 Install the matching Expo Go version on your Android phone and scan the QR code. A local development machine normally needs to be on the same network. For a remote/cloud workspace, try:
 
 ```sh
-npx expo start --tunnel
+npx expo start --tunnel ngrok
 ```
 
-Expo may offer to install its tunnel dependency. Keep the process running. Tunnels depend on the cloud network and are temporary, not hosting. Never share credentials or personal data through a development preview. If the store version of Expo Go does not yet support this project's Expo SDK, use a compatible Expo Go from expo.dev/go on Android, or create an Expo development build.
+The ngrok tunnel dependency is included in the project. Keep the process running. Tunnels depend on the cloud network and are temporary, not hosting. Never share credentials or personal data through a development preview. If the store version of Expo Go does not yet support this project's Expo SDK, use a compatible Expo Go from expo.dev/go on Android, or create an Expo development build.
 
 ```sh
 npm run typecheck
