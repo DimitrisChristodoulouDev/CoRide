@@ -1,0 +1,45 @@
+name: Android test APK
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/android-test-build.yml"
+permissions:
+  contents: read
+concurrency:
+  group: android-test-build
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      NODE_OPTIONS: --max-old-space-size=4096
+      GOOGLE_MAPS_ANDROID_API_KEY: ${{ secrets.GOOGLE_MAPS_ANDROID_API_KEY }}
+      CMAKE_BUILD_PARALLEL_LEVEL: 2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: gradle/actions/setup-gradle@v4
+      - run: npm ci
+      - run: npm run typecheck && npm test
+      - name: Generate native Android project
+        run: npx expo prebuild --platform android --no-install
+      - name: Build standalone test APK (ARM64)
+        working-directory: android
+        run: ./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a --no-daemon --max-workers=2 -Dorg.gradle.jvmargs="-Xmx3g -XX:MaxMetaspaceSize=1g"
+      - name: Name APK
+        run: cp android/app/build/outputs/apk/release/app-release.apk CoRide-android-test.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CoRide-android-test
+          path: CoRide-android-test.apk
+          retention-days: 14

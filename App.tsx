@@ -18,6 +18,8 @@ import * as Linking from "expo-linking";
 import type { User } from "@supabase/supabase-js";
 import AddressPicker from "./src/AddressPicker";
 import Account from "./src/Account";
+import { authRedirectUrl } from "./src/authRedirect";
+import { parseAuthCallback } from "./src/authLinks";
 import Admin from "./src/Admin";
 import Trip from "./src/Trip";
 import { db, deliverNotifications } from "./src/backend";
@@ -207,13 +209,21 @@ export default function App() {
         setSelectedId(null);
       }
     });
+    const handledCodes = new Set<string>();
     async function handleUrl(url: string) {
       try {
-        const parsed = new URL(url.replace("#", "?"));
-        const code = parsed.searchParams.get("code");
-        if (code) {
+        const callback = parseAuthCallback(url, authRedirectUrl());
+        if (!callback) return;
+        if (callback.error) throw new Error(callback.error);
+        const code = callback.code;
+        if (code && !handledCodes.has(code)) {
+          handledCodes.add(code);
           const { error } = await db!.auth.exchangeCodeForSession(code);
-          if (error) throw error;
+          if (error) {
+            handledCodes.delete(code);
+            throw error;
+          }
+          setNotice("Account link verified. You are back in CoRide.");
         }
       } catch (e) {
         setNotice(

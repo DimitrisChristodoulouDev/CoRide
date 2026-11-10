@@ -11,7 +11,9 @@ import {
   TextInput,
   View,
 } from "react-native";
-import MapView, { Marker, PROVIDER_GOOGLE } from "react-native-maps";
+import type MapView from "react-native-maps";
+import { Marker, PROVIDER_GOOGLE } from "react-native-maps";
+import NativeMap from "./NativeMap";
 import * as Location from "expo-location";
 import Constants from "expo-constants";
 import { db } from "./backend";
@@ -292,7 +294,7 @@ export default function AddressPicker({
             ))}
           </ScrollView>
         )}
-        <MapView
+        <NativeMap
           ref={map}
           provider={
             Platform.OS === "ios" &&
@@ -320,7 +322,7 @@ export default function AddressPicker({
               }
             />
           )}
-        </MapView>
+        </NativeMap>
         <View style={s.bottom}>
           <Text style={s.detail}>Google Maps · address results by Google</Text>
           <Text style={s.title}>{address || "Tap the map to drop a pin"}</Text>

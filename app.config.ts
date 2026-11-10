@@ -36,6 +36,10 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   ],
   extra: {
     ...config.extra,
+    nativeMaps: {
+      android: !!process.env.GOOGLE_MAPS_ANDROID_API_KEY,
+      ios: !!process.env.GOOGLE_MAPS_IOS_API_KEY,
+    },
     ...(process.env.EXPO_PUBLIC_EAS_PROJECT_ID
       ? { eas: { projectId: process.env.EXPO_PUBLIC_EAS_PROJECT_ID } }
       : {}),

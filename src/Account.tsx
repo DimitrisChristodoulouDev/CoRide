@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { Alert, Pressable, Switch, Text, View } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import { decode } from "base64-arraybuffer";
-import * as Linking from "expo-linking";
+import { authRedirectUrl } from "./authRedirect";
 import type { User } from "@supabase/supabase-js";
 import { db, signOut } from "./backend";
 import { Avatar, Button, Field, ui } from "./ui";
@@ -61,7 +61,7 @@ export default function Account({
         );
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()))
         throw new Error("Enter a valid email address.");
-      const redirect = Linking.createURL("auth/callback");
+      const redirect = authRedirectUrl();
       if (mode === "Forgot password") {
         const { error } = await db.auth.resetPasswordForEmail(email.trim(), {
           redirectTo: redirect,

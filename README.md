@@ -132,3 +132,15 @@ npx expo export --platform ios
 ## Current limits
 
 The CoRide database, storage buckets and server functions are deployed. Google billing/keys, admin provisioning, auth redirect/SMTP settings and push credentials still need configuration before their corresponding features work. End-to-end testing against those services and physical Android/iOS devices is still required. No real payments, refunds, automated licence authenticity checks, background tracking or app-store release are included. Cancellation currently carries no fee and is allowed while a ride is scheduled. Configure privacy/retention processes and operating requirements before onboarding real users or collecting licence documents.
+
+## Installable Android test APK
+
+Open the repository's **Actions → Android test APK** workflow, then download the `CoRide-android-test` artifact from a successful run. Extract `CoRide-android-test.apk` and install it on an ARM64 Android phone. This is an internal test build signed using the generated test keystore, not a Play Store release. The JS bundle is embedded; the Expo server is not needed.
+
+Add a GitHub Actions secret named `GOOGLE_MAPS_ANDROID_API_KEY` before rebuilding to display Google maps in the standalone APK. Without it, the app shows a map-setup message rather than opening an unconfigured native map. The Places search key remains separately stored on Supabase.
+
+For email confirmation and reset links in the installed APK, add `coride://auth/callback` to **Supabase → Authentication → URL Configuration → Redirect URLs**. Request a new email link after saving. Expo Go instead needs its current preview callback URL allowed and the server running. Links must be opened on the same phone that requested them for PKCE verification.
+
+## Published test dataset
+
+`supabase/seed-test-rides.sql` has been applied to CoRide: 240 future rides over 12 days, all 20 intercity directions, 20 fictional drivers, 20 historical journeys and 60 sample reviews. Test names, vehicles, pickup points and reviews are explicitly labelled. Fixture accounts use `.invalid` email addresses, have no password or identity, and are permanently banned from login; no email is sent. Real accounts are not modified. The script is idempotent. Booking requests against fictional drivers remain pending because those accounts cannot sign in and accept them.

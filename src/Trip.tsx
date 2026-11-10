@@ -8,7 +8,8 @@ import {
   TextInput,
   View,
 } from "react-native";
-import MapView, { Marker, PROVIDER_GOOGLE } from "react-native-maps";
+import { Marker, PROVIDER_GOOGLE } from "react-native-maps";
+import NativeMap from "./NativeMap";
 import * as Location from "expo-location";
 import Constants from "expo-constants";
 import { db, deliverNotifications } from "./backend";
@@ -149,7 +150,7 @@ export default function Trip({
   return (
     <View>
       <Text style={ui.heading}>Trip map & navigation</Text>
-      <MapView
+      <NativeMap
         provider={
           Platform.OS === "ios" &&
           Constants.executionEnvironment === "storeClient"
@@ -172,7 +173,7 @@ export default function Trip({
             pinColor="blue"
           />
         )}
-      </MapView>
+      </NativeMap>
       <Button
         title="Navigate to pickup in Google Maps"
         onPress={() =>
