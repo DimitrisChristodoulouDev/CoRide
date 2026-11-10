@@ -3,6 +3,7 @@ import {
   Alert,
   Linking as NativeLinking,
   Modal,
+  KeyboardAvoidingView,
   Platform,
   Pressable,
   SafeAreaView,
@@ -115,6 +116,10 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null),
     [recovery, setRecovery] = useState(false),
     [ready, setReady] = useState(!db);
+  const [authPopup, setAuthPopup] = useState<
+    "member" | "admin" | "password" | null
+  >(null);
+  const [pendingTab, setPendingTab] = useState<string | null>(null);
   const [tab, setTab] = useState("Find"),
     [rides, setRides] = useState<Ride[]>(db ? [] : demoRides),
     [drivers, setDrivers] = useState<Driver[]>(db ? [] : demoDrivers),
@@ -187,9 +192,13 @@ export default function App() {
       setUser(session?.user ?? null);
       if (event === "PASSWORD_RECOVERY") {
         setRecovery(true);
-        setTab("Profile");
+        setAuthPopup("password");
       }
       if (event === "SIGNED_OUT") {
+        setAuthPopup(null);
+        setPendingTab(null);
+        setRecovery(false);
+        setTab("Find");
         setRides([]);
         setDrivers([]);
         setBookings([]);
@@ -247,6 +256,33 @@ export default function App() {
   useEffect(() => {
     if (profile?.role === "admin") setTab("Admin");
   }, [profile?.role]);
+  useEffect(() => {
+    if (
+      user &&
+      (authPopup === "member" || authPopup === "admin") &&
+      !recovery
+    ) {
+      setAuthPopup(null);
+      if (pendingTab) setTab(pendingTab);
+      setPendingTab(null);
+    }
+  }, [user?.id, authPopup, recovery, pendingTab]);
+  function navigate(next: string) {
+    if (
+      !user &&
+      (next === "Profile" || next === "Admin" || (!!db && next !== "Find"))
+    ) {
+      setPendingTab(next);
+      setAuthPopup(next === "Admin" ? "admin" : "member");
+      return;
+    }
+    setTab(next);
+    setNotice("");
+  }
+  function closeAuth() {
+    setAuthPopup(null);
+    setPendingTab(null);
+  }
   async function run(action: () => Promise<void>) {
     if (busy) return;
     setBusy(true);
@@ -457,6 +493,17 @@ export default function App() {
               : "Sign in to browse and book rides"
             : "DEMO MODE · sample drivers and reviews · temporary data"}
         </Text>
+        {!user && (
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => {
+              setPendingTab(null);
+              setAuthPopup("member");
+            }}
+          >
+            <Text style={ui.link}>Sign in / Create account</Text>
+          </Pressable>
+        )}
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
@@ -468,8 +515,7 @@ export default function App() {
                 key={t}
                 style={[ui.chip, tab === t && ui.selected]}
                 onPress={() => {
-                  setTab(t);
-                  setNotice("");
+                  navigate(t);
                 }}
               >
                 <Text style={[ui.chipText, tab === t && { color: "white" }]}>
@@ -490,7 +536,7 @@ export default function App() {
             role={profile?.role}
             onRefresh={() => refresh().catch((e) => setNotice(e.message))}
           />
-        ) : tab === "Profile" || (!!db && !user) ? (
+        ) : tab === "Profile" && user ? (
           <Account
             key={user?.id ?? "guest"}
             user={user}
@@ -498,6 +544,7 @@ export default function App() {
             onSaved={() => refresh().catch((e) => setNotice(e.message))}
             recovery={recovery}
             onRecoveryDone={() => setRecovery(false)}
+            onChangePassword={() => setAuthPopup("password")}
           />
         ) : tab === "Alerts" ? (
           <>
@@ -1156,6 +1203,81 @@ export default function App() {
             )}
           </ScrollView>
         </SafeAreaView>
+      </Modal>
+      <Modal
+        visible={!!authPopup}
+        transparent
+        animationType="fade"
+        onRequestClose={closeAuth}
+      >
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+        >
+          <View style={[ui.overlay, { justifyContent: "center", padding: 20 }]}>
+            <View
+              accessibilityViewIsModal
+              style={[
+                ui.sheet,
+                {
+                  borderRadius: 24,
+                  width: "100%",
+                  maxWidth: 520,
+                  alignSelf: "center",
+                  padding: 0,
+                },
+              ]}
+            >
+              <View
+                style={{
+                  alignItems: "flex-end",
+                  paddingHorizontal: 20,
+                  paddingTop: 10,
+                }}
+              >
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Close authentication popup"
+                  onPress={closeAuth}
+                >
+                  <Text style={ui.link}>Close ✕</Text>
+                </Pressable>
+              </View>
+              <ScrollView
+                keyboardShouldPersistTaps="handled"
+                contentContainerStyle={{ padding: 22, paddingTop: 0 }}
+              >
+                {authPopup === "admin" ? (
+                  <Admin
+                    user={user}
+                    role={profile?.role}
+                    onRefresh={() =>
+                      refresh().catch((e) => setNotice(e.message))
+                    }
+                  />
+                ) : (
+                  !!authPopup && (
+                    <Account
+                      key={`${authPopup}-${user?.id ?? "guest"}`}
+                      user={authPopup === "password" ? user : null}
+                      profile={profile}
+                      passwordOnly={authPopup === "password"}
+                      recovery={recovery}
+                      onSaved={() =>
+                        refresh().catch((e) => setNotice(e.message))
+                      }
+                      onRecoveryDone={() => {
+                        setRecovery(false);
+                        setAuthPopup(null);
+                        setNotice("Password updated.");
+                      }}
+                    />
+                  )
+                )}
+              </ScrollView>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
       </Modal>
     </SafeAreaView>
   );

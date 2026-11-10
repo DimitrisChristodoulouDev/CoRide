@@ -13,12 +13,16 @@ export default function Account({
   onSaved,
   recovery,
   onRecoveryDone,
+  passwordOnly = false,
+  onChangePassword,
 }: {
   user: User | null;
   profile?: Driver;
   onSaved: () => void;
   recovery: boolean;
   onRecoveryDone: () => void;
+  passwordOnly?: boolean;
+  onChangePassword?: () => void;
 }) {
   const [mode, setMode] = useState<"Sign in" | "Sign up" | "Forgot password">(
     "Sign in",
@@ -209,6 +213,44 @@ export default function Account({
       );
     });
   }
+  if (passwordOnly && user)
+    return (
+      <View>
+        {!!notice && (
+          <Text accessibilityRole="alert" style={ui.notice}>
+            {notice}
+          </Text>
+        )}
+        <Text style={[ui.heading, { marginTop: 25 }]}>
+          {recovery ? "Reset your password" : "Change password"}
+        </Text>
+        {!recovery && (
+          <Field
+            label="Current password"
+            secure
+            value={current}
+            onChangeText={setCurrent}
+          />
+        )}
+        <Field
+          label="New password"
+          secure
+          value={password}
+          onChangeText={setPassword}
+        />
+        <Field
+          label="Confirm new password"
+          secure
+          value={confirm}
+          onChangeText={setConfirm}
+        />
+        <Button
+          title="Update password"
+          disabled={busy}
+          onPress={changePassword}
+        />
+      </View>
+    );
   return (
     <View>
       <Text style={ui.title}>{user ? "Your profile" : mode}</Text>
@@ -289,33 +331,9 @@ export default function Account({
               )
             }
           />
-          <Text style={[ui.heading, { marginTop: 25 }]}>
-            {recovery ? "Reset your password" : "Change password"}
-          </Text>
-          {!recovery && (
-            <Field
-              label="Current password"
-              secure
-              value={current}
-              onChangeText={setCurrent}
-            />
-          )}
-          <Field
-            label="New password"
-            secure
-            value={password}
-            onChangeText={setPassword}
-          />
-          <Field
-            label="Confirm new password"
-            secure
-            value={confirm}
-            onChangeText={setConfirm}
-          />
           <Button
-            title="Update password"
-            disabled={busy}
-            onPress={changePassword}
+            title="Change password"
+            onPress={() => onChangePassword?.()}
           />
           <Button
             title="Sign out"
