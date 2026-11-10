@@ -1,0 +1,9 @@
+project_id = "coride"
+
+# Both functions explicitly authenticate the user via auth.getUser().
+# Accept new Supabase signing keys rather than using the legacy JWT gateway.
+[functions.search-address]
+verify_jwt = false
+
+[functions.deliver-notifications]
+verify_jwt = false

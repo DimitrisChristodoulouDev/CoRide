@@ -2,8 +2,11 @@ import "react-native-url-polyfill/auto";
 import { createClient } from "@supabase/supabase-js";
 import * as SecureStore from "expo-secure-store";
 import { AppState, Platform } from "react-native";
-const url = process.env.EXPO_PUBLIC_SUPABASE_URL,
-  key = process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+import { supabaseProject } from "./project";
+const url = process.env.EXPO_PUBLIC_SUPABASE_URL || supabaseProject.url,
+  key =
+    process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
+    supabaseProject.publishableKey;
 // Chunk encrypted sessions so large JWTs fit native SecureStore limits.
 const storage = {
   async getItem(key: string) {
@@ -34,7 +37,7 @@ const storage = {
   },
 };
 export const db =
-  url && key
+  process.env.EXPO_PUBLIC_DEMO_MODE !== "true" && url && key
     ? createClient(url, key, {
         auth: {
           storage: Platform.OS === "web" ? undefined : storage,

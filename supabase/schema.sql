@@ -164,3 +164,5 @@ declare used integer;begin
  return used<=30;end;$$;
 revoke execute on function public.consume_address_search() from public,anon;
 grant execute on function public.consume_address_search() to authenticated;
+-- Remove Supabase's explicit default grants on trigger-only functions.
+revoke execute on function public.handle_new_user(), public.notify_message(), public.verification_pending(), public.stamp_driver_location() from authenticated;

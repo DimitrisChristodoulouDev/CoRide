@@ -12,7 +12,9 @@ npx expo start --tunnel ngrok --clear
 
 Scan the new QR code in Expo Go on your phone. Keep the Codespace and server running. Use the Expo Go release compatible with SDK 58. No local PC installation is needed.
 
-Without configuration, **demo mode** provides sample rides, reviews, city/driver search, sorting, map pin selection, current-location pickup, date/time scheduling, demo booking/cancellation, and review submission after simulating a completed trip. All demo data resets on reload. Demo acceptance and trip completion are explicitly labelled simulations.
+The app now connects by default to the **CoRide Supabase project** (`qybreyxpaktuiipsnfxg`). Its schema, storage buckets and the search/notification functions are deployed. Client configuration in `src/project.ts` contains only the public project URL and publishable key. Sign up on your phone to use live data.
+
+Set `EXPO_PUBLIC_DEMO_MODE=true` in `.env` and restart Expo to use **demo mode**, which provides sample rides, reviews, city/driver search, sorting, map pin selection, current-location pickup, date/time scheduling, demo booking/cancellation, and review submission after simulating a completed trip. All demo data resets on reload. Demo acceptance and trip completion are explicitly labelled simulations.
 
 ## What is implemented
 
@@ -36,6 +38,8 @@ Journey durations are driver-entered estimates, not Google traffic predictions. 
 
 ## Connect Supabase (required for live accounts and shared data)
 
+The current CoRide project is already connected. The following steps are for a **new or replacement project**; do not rerun the initial schema on CoRide.
+
 1. Create a Supabase project.
 2. In its SQL editor, run **supabase/schema.sql** once on a new project. It creates tables, row-level policies, private licence storage, public avatar storage, booking transactions and realtime publication entries.
 3. Copy `.env.example` to `.env`. Set `EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY` from the Supabase project settings. The public anon key also works. **Never put a service-role key in EXPO_PUBLIC variables or commit `.env`.**
@@ -47,7 +51,9 @@ The driver signup checkbox records a request to become a driver, not an approval
 
 ## Google services
 
-Enable billing and **Places API (New)** in Google Cloud. Store the Places key as the Supabase secret `GOOGLE_PLACES_API_KEY`, then deploy the authenticated function:
+For CoRide, the `search-address` function is already deployed. Open [Google Cloud credentials](https://console.cloud.google.com/apis/credentials), select/create your project, enable billing and **Places API (New)**, and create a server API key restricted to Places API (New). Add it as `GOOGLE_PLACES_API_KEY` in [CoRide Edge Function secrets](https://supabase.com/dashboard/project/qybreyxpaktuiipsnfxg/functions/secrets). Never add the server key to GitHub. No function redeployment is needed after setting the secret.
+
+For other projects, enable billing and **Places API (New)** in Google Cloud. Store the Places key as the Supabase secret `GOOGLE_PLACES_API_KEY`, then deploy the authenticated function:
 
 ```sh
 npx supabase login
@@ -125,4 +131,4 @@ npx expo export --platform ios
 
 ## Current limits
 
-This is an integrated development checkpoint, not a deployed service. The Supabase schema/functions, Google billing/keys, admin provisioning, SMTP and push credentials must be configured in your accounts before the corresponding features work. End-to-end testing against those services and physical Android/iOS devices is still required. No real payments, refunds, automated licence authenticity checks, background tracking or app-store release are included. Cancellation currently carries no fee and is allowed while a ride is scheduled. Configure privacy/retention processes and operating requirements before onboarding real users or collecting licence documents.
+The CoRide database, storage buckets and server functions are deployed. Google billing/keys, admin provisioning, auth redirect/SMTP settings and push credentials still need configuration before their corresponding features work. End-to-end testing against those services and physical Android/iOS devices is still required. No real payments, refunds, automated licence authenticity checks, background tracking or app-store release are included. Cancellation currently carries no fee and is allowed while a ride is scheduled. Configure privacy/retention processes and operating requirements before onboarding real users or collecting licence documents.
