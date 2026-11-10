@@ -1,41 +1,1162 @@
-import React, { useState } from 'react';
-import { SafeAreaView, ScrollView, View, Text, TextInput, Pressable, StyleSheet, Modal } from 'react-native';
-import { StatusBar } from 'expo-status-bar';
-
-type Ride = { id: number; from: string; to: string; time: string; driver: string; price: number; seats: number };
-const cities = ['Nicosia', 'Limassol', 'Larnaca', 'Paphos', 'Ayia Napa'];
-const initial: Ride[] = [
-  { id: 1, from: 'Nicosia', to: 'Limassol', time: '08:30', driver: 'Andreas', price: 8, seats: 3 },
-  { id: 2, from: 'Larnaca', to: 'Nicosia', time: '09:00', driver: 'Maria', price: 6, seats: 2 },
-  { id: 3, from: 'Limassol', to: 'Paphos', time: '10:15', driver: 'Elena', price: 9, seats: 3 },
+import React, { useEffect, useState } from "react";
+import {
+  Alert,
+  Linking as NativeLinking,
+  Modal,
+  Platform,
+  Pressable,
+  SafeAreaView,
+  ScrollView,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
+import { StatusBar } from "expo-status-bar";
+import DateTimePicker from "@react-native-community/datetimepicker";
+import * as Linking from "expo-linking";
+import type { User } from "@supabase/supabase-js";
+import AddressPicker from "./src/AddressPicker";
+import Account from "./src/Account";
+import Admin from "./src/Admin";
+import Trip from "./src/Trip";
+import { db, deliverNotifications } from "./src/backend";
+import { cityPoints, type Pickup } from "./src/locations";
+import {
+  type Booking,
+  type Driver,
+  type Review,
+  type Ride,
+  type Sort,
+  sorts,
+  score,
+  sortRides,
+} from "./src/model";
+import { Avatar, Button, Field, RatingInput, Stars, ui } from "./src/ui";
+import { registerPush } from "./src/notifications";
+const tomorrow = new Date();
+tomorrow.setDate(tomorrow.getDate() + 1);
+tomorrow.setHours(8, 30, 0, 0);
+const pickup = (city: string): Pickup => ({
+  ...cityPoints[city],
+  city,
+  address: `${city} city centre`,
+});
+const demoDrivers: Driver[] = [
+  {
+    id: "andreas",
+    name: "Andreas Georgiou",
+    vehicle: "Toyota Corolla · Silver",
+    driver_approved: true,
+  },
+  {
+    id: "maria",
+    name: "Maria Nicolaou",
+    vehicle: "Volkswagen Golf · Blue",
+    driver_approved: true,
+  },
+  {
+    id: "elena",
+    name: "Elena Petrou",
+    vehicle: "Kia Ceed · White",
+    driver_approved: true,
+  },
+  { id: "demo", name: "You · demo driver", vehicle: "Demo vehicle" },
+];
+const demoRides: Ride[] = [
+  ["1", "andreas", "Nicosia", "Limassol", 8, 65],
+  ["2", "maria", "Larnaca", "Nicosia", 6, 45],
+  ["3", "elena", "Limassol", "Paphos", 9, 60],
+].map(([id, driver, from, to, price, duration], i) => ({
+  id: String(id),
+  driver_id: String(driver),
+  from_city: String(from),
+  to_city: String(to),
+  pickup: pickup(String(from)),
+  dropoff: pickup(String(to)),
+  departure: new Date(tomorrow.getTime() + i * 3600000).toISOString(),
+  duration: Number(duration),
+  price: Number(price),
+  seats: 3,
+  status: "scheduled",
+}));
+const demoReviews: Review[] = [
+  {
+    id: "seed1",
+    booking_id: "seed1",
+    driver_id: "andreas",
+    author_id: "sample",
+    rating: 5,
+    driving: 5,
+    chatty: 2,
+    comment: "Sample review: calm driving and an easy pickup.",
+  },
+  {
+    id: "seed2",
+    booking_id: "seed2",
+    driver_id: "maria",
+    author_id: "sample",
+    rating: 4,
+    driving: 5,
+    chatty: 5,
+    comment: "Sample review: friendly conversation throughout.",
+  },
+  {
+    id: "seed3",
+    booking_id: "seed3",
+    driver_id: "elena",
+    author_id: "sample",
+    rating: 5,
+    driving: 4,
+    chatty: 3,
+    comment: "Sample review: punctual and comfortable.",
+  },
 ];
 export default function App() {
-  const [tab, setTab] = useState('Find a ride');
-  const [rides, setRides] = useState(initial);
-  const [from, setFrom] = useState(''); const [to, setTo] = useState('');
-  const [booked, setBooked] = useState<number[]>([]);
-  const [selected, setSelected] = useState<Ride | null>(null);
-  const [price, setPrice] = useState('8'); const [time, setTime] = useState('08:30');
-  const [message, setMessage] = useState('');
-  const visible = rides.filter(r => tab === 'My rides' ? booked.includes(r.id) : r.from.toLowerCase().includes(from.trim().toLowerCase()) && r.to.toLowerCase().includes(to.trim().toLowerCase()));
-  function publish() {
-    if (!cities.includes(from.trim()) || !cities.includes(to.trim()) || from.trim() === to.trim()) { setMessage('Choose two different cities from the list below.'); return; }
-    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(time) || !Number.isFinite(Number(price)) || Number(price) <= 0 || Number(price) > 100) { setMessage('Enter a valid time (HH:MM) and price between €0.01 and €100.'); return; }
-    setRides([...rides, { id: Date.now(), from: from.trim(), to: to.trim(), time, price: Number(price), seats: 3, driver: 'You' }]);
-    setMessage('Demo ride published for this session.'); setFrom(''); setTo(''); setTab('Find a ride');
+  const [user, setUser] = useState<User | null>(null),
+    [recovery, setRecovery] = useState(false),
+    [ready, setReady] = useState(!db);
+  const [tab, setTab] = useState("Find"),
+    [rides, setRides] = useState<Ride[]>(db ? [] : demoRides),
+    [drivers, setDrivers] = useState<Driver[]>(db ? [] : demoDrivers),
+    [reviews, setReviews] = useState<Review[]>(db ? [] : demoReviews),
+    [bookings, setBookings] = useState<Booking[]>([]);
+  const [from, setFrom] = useState(""),
+    [to, setTo] = useState(""),
+    [origin, setOrigin] = useState<Pickup | undefined>(),
+    [destination, setDestination] = useState<Pickup | undefined>(),
+    [map, setMap] = useState<"from" | "to" | null>(null);
+  const [driverQuery, setDriverQuery] = useState(""),
+    [sort, setSort] = useState<Sort>("Departure"),
+    [date, setDate] = useState(new Date(tomorrow)),
+    [dateFilter, setDateFilter] = useState<Date | null>(null),
+    [picker, setPicker] = useState<"date" | "time" | "filter" | null>(null);
+  const [price, setPrice] = useState("8"),
+    [duration, setDuration] = useState("60"),
+    [seats, setSeats] = useState("3");
+  const [selectedId, setSelectedId] = useState<string | null>(null),
+    [notice, setNotice] = useState(""),
+    [busy, setBusy] = useState(false),
+    [blocked, setBlocked] = useState<string[]>([]),
+    [notifications, setNotifications] = useState<any[]>([]);
+  const [rating, setRating] = useState(5),
+    [driving, setDriving] = useState(5),
+    [chatty, setChatty] = useState(3),
+    [comment, setComment] = useState(""),
+    [report, setReport] = useState("");
+  const uid = user?.id ?? "demo",
+    profile = drivers.find((d) => d.id === uid),
+    selected = rides.find((r) => r.id === selectedId);
+  async function refresh() {
+    if (!db) return;
+    const {
+      data: { user: current },
+    } = await db.auth.getUser();
+    if (!current) return;
+    const result = await Promise.all([
+      db.from("rides").select("*").order("departure"),
+      db.from("profiles").select("*"),
+      db.from("reviews").select("*"),
+      db.from("bookings").select("*"),
+      db.from("blocks").select("blocked_id"),
+      db
+        .from("notifications")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(50),
+    ]);
+    const error = result.find((r) => r.error)?.error;
+    if (error) throw error;
+    setRides(result[0].data ?? []);
+    setDrivers(result[1].data ?? []);
+    setReviews(result[2].data ?? []);
+    setBookings(result[3].data ?? []);
+    setBlocked((result[4].data ?? []).map((b) => b.blocked_id));
+    setNotifications(result[5].data ?? []);
   }
-  return <SafeAreaView style={s.screen}><StatusBar style="dark"/><ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
-    <View style={s.top}><Text style={s.logo}>co<Text style={{color:'#159b7b'}}>ride</Text><Text style={s.dot}> ●</Text></Text><Text style={s.badge}>CYPRUS · EUR</Text></View>
-    <Text style={s.eyebrow}>LESS TRAFFIC. MORE CONNECTION.</Text>
-    <Text style={s.hero}>Your island.{'\n'}Your way together.</Text><Text style={s.subtitle}>Share the journey across Cyprus.</Text>
-    <View style={s.tabs}>{['Find a ride','Publish','My rides'].map(t=><Pressable key={t} onPress={()=>{setTab(t);setMessage('');}} style={[s.tab,tab===t&&s.active]}><Text style={[s.tabText,tab===t&&{color:'white'}]}>{t}</Text></Pressable>)}</View>
-    {tab !== 'My rides' && <View style={s.panel}><Text style={s.heading}>{tab==='Publish'?'Where are you driving?':'Where are you heading?'}</Text><Text style={s.label}>FROM</Text><TextInput accessibilityLabel="Departure city" style={s.input} placeholder="e.g. Nicosia" value={from} onChangeText={setFrom}/><Text style={s.label}>TO</Text><TextInput accessibilityLabel="Destination city" style={s.input} placeholder="e.g. Limassol" value={to} onChangeText={setTo}/>
-    {tab==='Publish'?<><Text style={s.label}>DEPARTURE TIME · DEMO DAY</Text><TextInput accessibilityLabel="Departure time" style={s.input} value={time} onChangeText={setTime}/><Text style={s.label}>PRICE PER SEAT (€)</Text><TextInput accessibilityLabel="Seat price" style={s.input} value={price} onChangeText={setPrice} keyboardType="decimal-pad"/><Pressable style={s.button} onPress={publish}><Text style={s.buttonText}>Publish demo ride →</Text></Pressable><Text style={s.small}>{cities.join(' · ')}</Text></>:<Pressable onPress={()=>{const old=from;setFrom(to);setTo(old);}}><Text style={s.link}>↑↓ Swap route</Text></Pressable>}</View>}
-    {!!message&&<Text accessibilityRole="alert" style={s.notice}>{message}</Text>}
-    {tab!=='Publish'&&<><View style={s.section}><Text style={s.heading}>{tab==='My rides'?'Your demo bookings':'Island connections'}</Text><Text style={s.small}>{visible.length} rides</Text></View><Text style={s.small}>Sample rides · illustrative departure day</Text>
-    {visible.map(r=><Pressable key={r.id} style={s.card} onPress={()=>setSelected(r)}><View style={s.row}><Text style={s.time}>{r.time}</Text><Text style={s.price}>€{r.price}<Text style={s.small}> / seat</Text></Text></View><Text style={s.route}>{r.from}  →  {r.to}</Text><View style={s.divider}/><View style={s.row}><Text style={s.driver}>◉  {r.driver}</Text><Text style={s.link}>{booked.includes(r.id)?'Booked':`${r.seats} seats available`}</Text></View></Pressable>)}
-    {!visible.length&&<Text style={s.notice}>{tab==='My rides'?'Your bookings will appear here.':'No matching rides. Try another city or publish a ride.'}</Text>}</>}
-    <Text style={s.footer}>A little company. A lighter footprint.</Text><Text style={s.small}>Prototype only · No real bookings or payments. Data resets when the app restarts.</Text>
-  </ScrollView><Modal visible={!!selected} transparent animationType="slide" onRequestClose={()=>setSelected(null)}><View style={s.overlay}><View style={s.sheet}>{selected&&<><Text style={s.eyebrow}>RIDE DETAILS · DEMO</Text><Text style={s.heading}>{selected.from} → {selected.to}</Text><Text style={s.subtitle}>{selected.time} · {selected.driver} · €{selected.price} per seat</Text><Text style={s.small}>Pickup: city centre. Agree the exact meeting point before travelling. This prototype does not contact drivers.</Text><Pressable style={s.button} disabled={!booked.includes(selected.id)&&selected.seats===0} onPress={()=>{const exists=booked.includes(selected.id);setBooked(exists?booked.filter(id=>id!==selected.id):[...booked,selected.id]);setRides(rides.map(r=>r.id===selected.id?{...r,seats:r.seats+(exists?1:-1)}:r));setMessage(exists?'Demo booking cancelled.':'Demo seat reserved. No payment taken.');setSelected(null);}}><Text style={s.buttonText}>{booked.includes(selected.id)?'Cancel demo booking':selected.seats===0?'Ride full':'Reserve a demo seat'}</Text></Pressable><Pressable onPress={()=>setSelected(null)}><Text style={[s.link,{textAlign:'center',padding:18}]}>Close</Text></Pressable></>}</View></View></Modal></SafeAreaView>;
+  useEffect(() => {
+    if (!db) return;
+    let alive = true;
+    db.auth.getSession().then(({ data, error }) => {
+      if (alive) {
+        setUser(data.session?.user ?? null);
+        setReady(true);
+        if (error) setNotice(error.message);
+      }
+    });
+    const { data } = db.auth.onAuthStateChange((event, session) => {
+      setUser(session?.user ?? null);
+      if (event === "PASSWORD_RECOVERY") {
+        setRecovery(true);
+        setTab("Profile");
+      }
+      if (event === "SIGNED_OUT") {
+        setRides([]);
+        setDrivers([]);
+        setBookings([]);
+        setReviews([]);
+        setNotifications([]);
+        setSelectedId(null);
+      }
+    });
+    async function handleUrl(url: string) {
+      try {
+        const parsed = new URL(url.replace("#", "?"));
+        const code = parsed.searchParams.get("code");
+        if (code) {
+          const { error } = await db!.auth.exchangeCodeForSession(code);
+          if (error) throw error;
+        }
+      } catch (e) {
+        setNotice(
+          e instanceof Error ? e.message : "Could not open account link.",
+        );
+      }
+    }
+    Linking.getInitialURL().then((url) => {
+      if (url) handleUrl(url);
+    });
+    const links = Linking.addEventListener("url", (e) => handleUrl(e.url));
+    return () => {
+      alive = false;
+      data.subscription.unsubscribe();
+      links.remove();
+    };
+  }, []);
+  useEffect(() => {
+    if (!user || !db) return;
+    refresh().catch((e) => setNotice(e.message));
+    const timer = setInterval(() => refresh().catch(() => null), 15000);
+    const channel = db
+      .channel(`account-${user.id}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "notifications",
+          filter: `user_id=eq.${user.id}`,
+        },
+        () => refresh().catch(() => null),
+      )
+      .subscribe();
+    return () => {
+      clearInterval(timer);
+      db?.removeChannel(channel);
+    };
+  }, [user?.id]);
+  useEffect(() => {
+    if (profile?.role === "admin") setTab("Admin");
+  }, [profile?.role]);
+  async function run(action: () => Promise<void>) {
+    if (busy) return;
+    setBusy(true);
+    setNotice("");
+    try {
+      await action();
+      if (db) {
+        await refresh();
+        deliverNotifications();
+      }
+    } catch (e) {
+      setNotice(e instanceof Error ? e.message : "Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function publish() {
+    if (db && !profile?.driver_approved)
+      throw new Error(
+        "Register as a driver and submit your driving licence in Profile. An admin must approve it before you publish.",
+      );
+    const a =
+        origin ?? (cityPoints[from.trim()] ? pickup(from.trim()) : undefined),
+      b =
+        destination ?? (cityPoints[to.trim()] ? pickup(to.trim()) : undefined);
+    if (!a || !b || a.city === b.city)
+      throw new Error(
+        "Choose two different supported cities or addresses using the map.",
+      );
+    if (date.getTime() <= Date.now())
+      throw new Error("Choose a future departure date and time.");
+    if (
+      !Number.isFinite(Number(price)) ||
+      Number(price) <= 0 ||
+      Number(price) > 1000 ||
+      !Number.isInteger(Number(duration)) ||
+      Number(duration) < 1 ||
+      Number(duration) > 1440 ||
+      !Number.isInteger(Number(seats)) ||
+      Number(seats) < 1 ||
+      Number(seats) > 8
+    )
+      throw new Error(
+        "Enter a price up to €1000, duration of 1–1440 minutes and 1–8 seats.",
+      );
+    const ride: Omit<Ride, "id"> = {
+      driver_id: uid,
+      from_city: a.city,
+      to_city: b.city,
+      pickup: a,
+      dropoff: b,
+      departure: date.toISOString(),
+      duration: Number(duration),
+      price: Number(price),
+      seats: Number(seats),
+      status: "scheduled",
+    };
+    if (db) {
+      const { error } = await db.from("rides").insert(ride);
+      if (error) throw error;
+    } else setRides((old) => [...old, { ...ride, id: String(Date.now()) }]);
+    setNotice(db ? "Ride published." : "Demo ride published for this session.");
+    setTab("Find");
+    setFrom("");
+    setTo("");
+    setOrigin(undefined);
+    setDestination(undefined);
+  }
+  async function request(ride: Ride) {
+    if (db) {
+      const { error } = await db.rpc("request_booking", { trip: ride.id });
+      if (error) throw error;
+      setNotice(
+        "Booking requested. A seat is confirmed when the driver accepts.",
+      );
+    } else {
+      setBookings((old) => [
+        ...old.filter(
+          (b) => !(b.ride_id === ride.id && b.passenger_id === uid),
+        ),
+        {
+          id: String(Date.now()),
+          ride_id: ride.id,
+          passenger_id: uid,
+          status: "accepted",
+        },
+      ]);
+      setRides((old) =>
+        old.map((r) => (r.id === ride.id ? { ...r, seats: r.seats - 1 } : r)),
+      );
+      setNotice(
+        "Demo seat accepted automatically. Live bookings require driver approval.",
+      );
+    }
+  }
+  async function cancel(booking: Booking) {
+    if (db) {
+      const { error } = await db.rpc("cancel_booking", { booking: booking.id });
+      if (error) throw error;
+    } else {
+      setBookings((old) =>
+        old.map((b) =>
+          b.id === booking.id ? { ...b, status: "cancelled" } : b,
+        ),
+      );
+      if (booking.status === "accepted")
+        setRides((old) =>
+          old.map((r) =>
+            r.id === booking.ride_id ? { ...r, seats: r.seats + 1 } : r,
+          ),
+        );
+    }
+    setNotice("Booking cancelled. No payment or fee taken.");
+  }
+  async function status(ride: Ride, next: Ride["status"]) {
+    if (db) {
+      const { error } = await db.rpc("set_trip_status", {
+        trip: ride.id,
+        next_status: next,
+      });
+      if (error) throw error;
+    } else {
+      setRides((old) =>
+        old.map((r) => (r.id === ride.id ? { ...r, status: next } : r)),
+      );
+      setBookings((old) =>
+        old.map((b) =>
+          b.ride_id === ride.id
+            ? {
+                ...b,
+                status:
+                  next === "completed"
+                    ? "completed"
+                    : next === "cancelled"
+                      ? "cancelled"
+                      : b.status,
+              }
+            : b,
+        ),
+      );
+    }
+  }
+  const day = (d: string | Date) =>
+    new Date(d).toLocaleDateString("en-GB", { timeZone: "Asia/Nicosia" });
+  const dateLabel = (d: string | Date) =>
+    new Date(d).toLocaleString("en-GB", {
+      timeZone: "Asia/Nicosia",
+      day: "numeric",
+      month: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  const filtered = sortRides(
+    rides.filter(
+      (r) =>
+        !blocked.includes(r.driver_id) &&
+        (tab === "My rides"
+          ? r.driver_id === uid ||
+            bookings.some((b) => b.ride_id === r.id && b.passenger_id === uid)
+          : ["scheduled", "active"].includes(r.status) &&
+            Date.parse(r.departure) > Date.now() &&
+            r.from_city.toLowerCase().includes(from.toLowerCase().trim()) &&
+            r.to_city.toLowerCase().includes(to.toLowerCase().trim()) &&
+            (drivers.find((d) => d.id === r.driver_id)?.name ?? "")
+              .toLowerCase()
+              .includes(driverQuery.toLowerCase().trim()) &&
+            (!dateFilter || day(r.departure) === day(dateFilter))),
+    ),
+    reviews,
+    sort,
+  );
+  const selectedDriver = drivers.find((d) => d.id === selected?.driver_id),
+    myBooking = bookings.find(
+      (b) => b.ride_id === selected?.id && b.passenger_id === uid,
+    ),
+    mine = selected?.driver_id === uid;
+  const canChat =
+    !!selected &&
+    (mine ||
+      (!!myBooking && ["accepted", "completed"].includes(myBooking.status)));
+  if (!ready)
+    return (
+      <SafeAreaView style={ui.screen}>
+        <Text style={ui.notice}>Loading CoRide…</Text>
+      </SafeAreaView>
+    );
+  return (
+    <SafeAreaView style={ui.screen}>
+      <StatusBar style="dark" />
+      <ScrollView
+        contentContainerStyle={ui.content}
+        keyboardShouldPersistTaps="handled"
+      >
+        <View style={ui.row}>
+          <Text style={{ fontSize: 32, fontWeight: "900", color: "#153f36" }}>
+            co<Text style={{ color: "#178168" }}>ride</Text> ●
+          </Text>
+          <Text style={ui.small}>CYPRUS · EUR</Text>
+        </View>
+        <Text style={[ui.title, { fontSize: 36, marginTop: 28 }]}>
+          Your island.{"\n"}Your way together.
+        </Text>
+        <Text style={ui.text}>Share the journey across Cyprus.</Text>
+        <Text style={[ui.small, { marginTop: 10 }]}>
+          {db
+            ? user
+              ? "Connected · live account"
+              : "Sign in to browse and book rides"
+            : "DEMO MODE · sample drivers and reviews · temporary data"}
+        </Text>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={{ marginVertical: 22 }}
+        >
+          {["Find", "Publish", "My rides", "Alerts", "Profile", "Admin"].map(
+            (t) => (
+              <Pressable
+                key={t}
+                style={[ui.chip, tab === t && ui.selected]}
+                onPress={() => {
+                  setTab(t);
+                  setNotice("");
+                }}
+              >
+                <Text style={[ui.chipText, tab === t && { color: "white" }]}>
+                  {t}
+                </Text>
+              </Pressable>
+            ),
+          )}
+        </ScrollView>
+        {!!notice && (
+          <Text accessibilityRole="alert" style={ui.notice}>
+            {notice}
+          </Text>
+        )}
+        {tab === "Admin" ? (
+          <Admin
+            user={user}
+            role={profile?.role}
+            onRefresh={() => refresh().catch((e) => setNotice(e.message))}
+          />
+        ) : tab === "Profile" || (!!db && !user) ? (
+          <Account
+            key={user?.id ?? "guest"}
+            user={user}
+            profile={profile}
+            onSaved={() => refresh().catch((e) => setNotice(e.message))}
+            recovery={recovery}
+            onRecoveryDone={() => setRecovery(false)}
+          />
+        ) : tab === "Alerts" ? (
+          <>
+            <Text style={ui.heading}>Notifications</Text>
+            <Button
+              title="Enable phone push notifications"
+              onPress={() =>
+                run(async () => {
+                  await registerPush();
+                  setNotice("Phone notifications enabled.");
+                })
+              }
+            />
+            {notifications.length === 0 && (
+              <Text style={ui.notice}>
+                {db
+                  ? "No notifications yet."
+                  : "Notifications become live after connecting Supabase."}
+              </Text>
+            )}
+            {notifications.map((n) => (
+              <Pressable
+                key={n.id}
+                style={ui.card}
+                onPress={() =>
+                  run(async () => {
+                    const { error } = await db!
+                      .from("notifications")
+                      .update({ read: true })
+                      .eq("id", n.id);
+                    if (error) throw error;
+                  })
+                }
+              >
+                <Text style={ui.text}>
+                  {n.read ? "" : "● "}
+                  {n.body}
+                </Text>
+                <Text style={ui.small}>
+                  {dateLabel(n.created_at)} · tap to mark read
+                </Text>
+              </Pressable>
+            ))}
+          </>
+        ) : (
+          <>
+            {(tab === "Find" || tab === "Publish") && (
+              <View style={ui.card}>
+                <Text style={ui.heading}>
+                  {tab === "Publish"
+                    ? "Publish your journey"
+                    : "Where are you heading?"}
+                </Text>
+                <Field
+                  label="From · city or choose an address"
+                  value={from}
+                  onChangeText={(v) => {
+                    setFrom(v);
+                    setOrigin(undefined);
+                  }}
+                />
+                <Pressable onPress={() => setMap("from")}>
+                  <Text style={ui.link}>
+                    ⌖ Search address / choose on Google Maps
+                  </Text>
+                </Pressable>
+                {origin && (
+                  <Text style={ui.small}>
+                    {origin.address}
+                    {"\n"}
+                    {origin.latitude.toFixed(5)}, {origin.longitude.toFixed(5)}
+                  </Text>
+                )}
+                <Field
+                  label="To · city or choose an address"
+                  value={to}
+                  onChangeText={(v) => {
+                    setTo(v);
+                    setDestination(undefined);
+                  }}
+                />
+                <Pressable onPress={() => setMap("to")}>
+                  <Text style={ui.link}>⌖ Choose destination address</Text>
+                </Pressable>
+                {destination && (
+                  <Text style={ui.small}>{destination.address}</Text>
+                )}
+                {tab === "Find" ? (
+                  <>
+                    <Pressable
+                      onPress={() => {
+                        setFrom(to);
+                        setTo(from);
+                        setOrigin(destination);
+                        setDestination(origin);
+                      }}
+                    >
+                      <Text style={ui.link}>↑↓ Swap route</Text>
+                    </Pressable>
+                    <Field
+                      label="Search by driver name"
+                      value={driverQuery}
+                      onChangeText={setDriverQuery}
+                    />
+                    <Button
+                      title={
+                        dateFilter
+                          ? `Travel date: ${day(dateFilter)}`
+                          : "Any date · choose travel date"
+                      }
+                      onPress={() => setPicker("filter")}
+                    />
+                    {dateFilter && (
+                      <Pressable onPress={() => setDateFilter(null)}>
+                        <Text style={ui.link}>Clear date filter</Text>
+                      </Pressable>
+                    )}
+                    <Text style={ui.label}>SORT BY</Text>
+                    <View style={{ flexDirection: "row", flexWrap: "wrap" }}>
+                      {sorts.map((item) => (
+                        <Pressable
+                          key={item}
+                          style={[ui.chip, sort === item && ui.selected]}
+                          onPress={() => setSort(item)}
+                        >
+                          <Text
+                            style={[
+                              ui.chipText,
+                              sort === item && { color: "white" },
+                            ]}
+                          >
+                            {item}
+                          </Text>
+                        </Pressable>
+                      ))}
+                    </View>
+                  </>
+                ) : (
+                  <>
+                    <Text style={ui.label}>DEPARTURE · DEVICE LOCAL TIME</Text>
+                    <View style={ui.row}>
+                      <Button
+                        title={date.toLocaleDateString()}
+                        onPress={() => setPicker("date")}
+                      />
+                      <Button
+                        title={date.toLocaleTimeString([], {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                        onPress={() => setPicker("time")}
+                      />
+                    </View>
+                    <Text style={ui.small}>
+                      Cyprus departure: {dateLabel(date)}
+                    </Text>
+                    <Field
+                      label="Estimated journey time (minutes)"
+                      value={duration}
+                      onChangeText={setDuration}
+                      keyboardType="numeric"
+                    />
+                    <Field
+                      label="Price per seat (€)"
+                      value={price}
+                      onChangeText={setPrice}
+                      keyboardType="decimal-pad"
+                    />
+                    <Field
+                      label="Available seats"
+                      value={seats}
+                      onChangeText={setSeats}
+                      keyboardType="numeric"
+                    />
+                    {db && !profile?.driver_approved && (
+                      <Text style={ui.notice}>
+                        Driver approval required. Submit your licence and
+                        vehicle details in Profile.
+                      </Text>
+                    )}
+                    <Button
+                      title={db ? "Publish ride" : "Publish demo ride"}
+                      disabled={busy}
+                      onPress={() => run(publish)}
+                    />
+                  </>
+                )}
+              </View>
+            )}
+            {(tab === "Find" || tab === "My rides") && (
+              <>
+                <Text style={[ui.heading, { marginTop: 24 }]}>
+                  {tab === "My rides"
+                    ? "Your bookings & published rides"
+                    : "Island connections"}{" "}
+                  · {filtered.length}
+                </Text>
+                {filtered.map((ride) => {
+                  const driver = drivers.find((d) => d.id === ride.driver_id);
+                  const value = score(reviews, ride.driver_id, "rating");
+                  return (
+                    <Pressable
+                      key={ride.id}
+                      style={ui.card}
+                      onPress={() => {
+                        setSelectedId(ride.id);
+                        setComment("");
+                        setReport("");
+                        setRating(5);
+                        setDriving(5);
+                        setChatty(3);
+                      }}
+                    >
+                      <View style={ui.row}>
+                        <Text style={ui.small}>
+                          {dateLabel(ride.departure)} · {ride.duration} min
+                        </Text>
+                        <Text style={ui.heading}>
+                          €{Number(ride.price).toFixed(2)} / seat
+                        </Text>
+                      </View>
+                      <Text style={ui.heading}>
+                        {ride.from_city} → {ride.to_city}
+                      </Text>
+                      <View style={ui.row}>
+                        <Avatar
+                          name={driver?.name ?? "Driver"}
+                          url={driver?.avatar_url}
+                        />
+                        <View style={{ flex: 1 }}>
+                          <Text style={ui.text}>
+                            {driver?.name ?? "Driver"}
+                          </Text>
+                          <Stars value={value} />
+                        </View>
+                        <Text style={ui.small}>
+                          {ride.seats} seats{"\n"}
+                          {ride.status}
+                        </Text>
+                      </View>
+                      <Text style={ui.small}>
+                        Driving:{" "}
+                        {score(reviews, ride.driver_id, "driving")?.toFixed(
+                          1,
+                        ) ?? "—"}
+                        /5 · Chatty:{" "}
+                        {score(reviews, ride.driver_id, "chatty")?.toFixed(1) ??
+                          "—"}
+                        /5
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+                {!filtered.length && (
+                  <Text style={ui.notice}>
+                    {tab === "My rides"
+                      ? "Your bookings and published rides appear here."
+                      : "No matching rides. Try different filters or publish a journey."}
+                  </Text>
+                )}
+              </>
+            )}
+          </>
+        )}
+        <Text style={[ui.small, { marginVertical: 30 }]}>
+          Cancellation: scheduled bookings may be cancelled before the trip
+          starts. No payments or cancellation fees are collected in this
+          version. Driver location is shared only during an active trip with
+          accepted participants.
+        </Text>
+      </ScrollView>
+      {picker && (
+        <Modal
+          transparent
+          visible
+          animationType="slide"
+          onRequestClose={() => setPicker(null)}
+        >
+          <View style={ui.overlay}>
+            <View style={ui.sheet}>
+              <Text style={ui.heading}>
+                {picker === "time"
+                  ? "Choose departure time"
+                  : "Choose travel date"}
+              </Text>
+              <DateTimePicker
+                value={picker === "filter" ? (dateFilter ?? new Date()) : date}
+                mode={picker === "time" ? "time" : "date"}
+                display={Platform.OS === "ios" ? "spinner" : "default"}
+                minimumDate={picker === "time" ? undefined : new Date()}
+                onChange={(event, value) => {
+                  if (event.type === "set" && value) {
+                    if (picker === "filter") setDateFilter(value);
+                    else setDate(value);
+                  }
+                  if (Platform.OS === "android") setPicker(null);
+                }}
+              />
+              <Button title="Done" onPress={() => setPicker(null)} />
+            </View>
+          </View>
+        </Modal>
+      )}
+      <AddressPicker
+        visible={!!map}
+        initial={map === "to" ? destination : origin}
+        onClose={() => setMap(null)}
+        onSelect={(point) => {
+          if (map === "from") {
+            setOrigin(point);
+            setFrom(point.city);
+          } else {
+            setDestination(point);
+            setTo(point.city);
+          }
+        }}
+      />
+      <Modal
+        visible={!!selected}
+        animationType="slide"
+        onRequestClose={() => setSelectedId(null)}
+      >
+        <SafeAreaView style={ui.screen}>
+          <ScrollView
+            contentContainerStyle={ui.content}
+            keyboardShouldPersistTaps="handled"
+          >
+            <Pressable onPress={() => setSelectedId(null)}>
+              <Text style={ui.link}>← Back to rides</Text>
+            </Pressable>
+            {!!notice && (
+              <Text accessibilityRole="alert" style={ui.notice}>
+                {notice}
+              </Text>
+            )}
+            {selected && (
+              <>
+                <Text style={ui.title}>
+                  {selected.from_city} → {selected.to_city}
+                </Text>
+                <Text style={ui.text}>
+                  {dateLabel(selected.departure)} Cyprus time ·{" "}
+                  {selected.duration} min{"\n"}€
+                  {Number(selected.price).toFixed(2)} per seat ·{" "}
+                  {selected.seats} seats · {selected.status}
+                </Text>
+                <Text style={ui.label}>PICKUP</Text>
+                <Text style={ui.text}>{selected.pickup.address}</Text>
+                <Text style={ui.label}>DROP-OFF</Text>
+                <Text style={ui.text}>{selected.dropoff.address}</Text>
+                <View style={[ui.row, { marginTop: 24 }]}>
+                  <Avatar
+                    name={selectedDriver?.name ?? "Driver"}
+                    url={selectedDriver?.avatar_url}
+                    size={64}
+                  />
+                  <View style={{ flex: 1 }}>
+                    <Text style={ui.heading}>{selectedDriver?.name}</Text>
+                    <Stars
+                      value={score(reviews, selected.driver_id, "rating")}
+                    />
+                    <Text style={ui.small}>
+                      {selectedDriver?.vehicle}
+                      {"\n"}
+                      {selectedDriver?.driver_approved
+                        ? "Approved driver"
+                        : "Unverified / demo driver"}
+                    </Text>
+                  </View>
+                </View>
+                <Text style={ui.small}>
+                  Driving quality:{" "}
+                  {score(reviews, selected.driver_id, "driving")?.toFixed(1) ??
+                    "No reviews"}{" "}
+                  · Chatty:{" "}
+                  {score(reviews, selected.driver_id, "chatty")?.toFixed(1) ??
+                    "No reviews"}{" "}
+                  (1 = quiet, 5 = very chatty)
+                </Text>
+                {!mine &&
+                  (!myBooking ||
+                    ["cancelled", "rejected"].includes(myBooking.status)) &&
+                  selected.status === "scheduled" && (
+                    <Button
+                      title={db ? "Request a seat" : "Reserve a demo seat"}
+                      disabled={
+                        busy ||
+                        selected.seats < 1 ||
+                        Date.parse(selected.departure) <= Date.now()
+                      }
+                      onPress={() => run(() => request(selected))}
+                    />
+                  )}
+                {myBooking && (
+                  <Text style={ui.notice}>
+                    Booking status: {myBooking.status}
+                  </Text>
+                )}
+                {myBooking &&
+                  ["pending", "accepted"].includes(myBooking.status) &&
+                  selected.status === "scheduled" && (
+                    <Button
+                      title="Cancel booking"
+                      disabled={busy}
+                      onPress={() => run(() => cancel(myBooking))}
+                    />
+                  )}
+                {mine && (
+                  <>
+                    <Text style={[ui.heading, { marginTop: 24 }]}>
+                      Manage your trip
+                    </Text>
+                    {bookings
+                      .filter((b) => b.ride_id === selected.id)
+                      .map((booking) => (
+                        <View key={booking.id} style={ui.card}>
+                          <Text style={ui.text}>
+                            {drivers.find((d) => d.id === booking.passenger_id)
+                              ?.name ?? "Passenger"}{" "}
+                            · {booking.status}
+                          </Text>
+                          {booking.status === "pending" &&
+                            ["accepted", "rejected"].map((decision) => (
+                              <Button
+                                key={decision}
+                                title={
+                                  decision === "accepted"
+                                    ? "Accept passenger"
+                                    : "Reject request"
+                                }
+                                disabled={busy}
+                                onPress={() =>
+                                  run(async () => {
+                                    const { error } = await db!.rpc(
+                                      "respond_booking",
+                                      { booking: booking.id, decision },
+                                    );
+                                    if (error) throw error;
+                                  })
+                                }
+                              />
+                            ))}
+                          {booking.status === "accepted" &&
+                            selected.status === "scheduled" && (
+                              <Button
+                                title="Cancel passenger booking"
+                                onPress={() => run(() => cancel(booking))}
+                              />
+                            )}
+                        </View>
+                      ))}
+                    {selected.status === "scheduled" && (
+                      <>
+                        <Button
+                          title="Start trip"
+                          disabled={busy}
+                          onPress={() => run(() => status(selected, "active"))}
+                        />
+                        <Button
+                          title="Cancel ride and notify passengers"
+                          disabled={busy}
+                          onPress={() =>
+                            Alert.alert(
+                              "Cancel ride?",
+                              "All pending and accepted bookings will be cancelled.",
+                              [
+                                { text: "Keep ride", style: "cancel" },
+                                {
+                                  text: "Cancel ride",
+                                  style: "destructive",
+                                  onPress: () =>
+                                    run(() => status(selected, "cancelled")),
+                                },
+                              ],
+                            )
+                          }
+                        />
+                      </>
+                    )}
+                    {selected.status === "active" && (
+                      <Button
+                        title="Complete trip"
+                        disabled={busy}
+                        onPress={() => run(() => status(selected, "completed"))}
+                      />
+                    )}
+                  </>
+                )}
+                {!db && myBooking?.status === "accepted" && (
+                  <Button
+                    title="Simulate completed demo trip"
+                    onPress={() => run(() => status(selected, "completed"))}
+                  />
+                )}
+                {canChat && db && (
+                  <View style={{ marginTop: 25 }}>
+                    <Trip
+                      key={selected.id}
+                      ride={selected}
+                      userId={uid}
+                      profiles={drivers}
+                    />
+                  </View>
+                )}
+                {!canChat && (
+                  <Button
+                    title="Open pickup in Google Maps"
+                    onPress={() =>
+                      NativeLinking.openURL(
+                        `https://www.google.com/maps/search/?api=1&query=${selected.pickup.latitude},${selected.pickup.longitude}`,
+                      )
+                    }
+                  />
+                )}
+                <Text style={[ui.heading, { marginTop: 25 }]}>
+                  Driver reviews
+                </Text>
+                {reviews
+                  .filter((r) => r.driver_id === selected.driver_id)
+                  .map((review) => (
+                    <View key={review.id} style={ui.card}>
+                      <View style={ui.row}>
+                        <Avatar
+                          name={
+                            drivers.find((d) => d.id === review.author_id)
+                              ?.name ?? "Passenger"
+                          }
+                        />
+                        <Stars value={review.rating} />
+                      </View>
+                      <Text style={ui.text}>{review.comment}</Text>
+                      <Text style={ui.small}>
+                        Driving {review.driving}/5 · Chatty {review.chatty}/5
+                      </Text>
+                    </View>
+                  ))}
+                {myBooking?.status === "completed" &&
+                  !reviews.some((r) => r.booking_id === myBooking.id) && (
+                    <View style={ui.card}>
+                      <Text style={ui.heading}>
+                        Review your completed journey
+                      </Text>
+                      <RatingInput
+                        label="Overall rating"
+                        value={rating}
+                        onChange={setRating}
+                      />
+                      <RatingInput
+                        label="Driving quality"
+                        value={driving}
+                        onChange={setDriving}
+                      />
+                      <RatingInput
+                        label="Chatty · 1 quiet, 5 very chatty"
+                        value={chatty}
+                        onChange={setChatty}
+                      />
+                      <Field
+                        label="Your review"
+                        value={comment}
+                        onChangeText={setComment}
+                      />
+                      <Button
+                        title="Submit review"
+                        disabled={busy}
+                        onPress={() =>
+                          run(async () => {
+                            const review = {
+                              booking_id: myBooking.id,
+                              driver_id: selected.driver_id,
+                              author_id: uid,
+                              rating,
+                              driving,
+                              chatty,
+                              comment: comment.trim(),
+                            };
+                            if (db) {
+                              const { error } = await db
+                                .from("reviews")
+                                .insert(review);
+                              if (error) throw error;
+                            } else
+                              setReviews((old) => [
+                                ...old,
+                                { ...review, id: String(Date.now()) },
+                              ]);
+                            setNotice("Review submitted.");
+                          })
+                        }
+                      />
+                    </View>
+                  )}
+                {!mine && (
+                  <View style={ui.card}>
+                    <Text style={ui.heading}>Report or block</Text>
+                    <Field
+                      label="Reason for reporting"
+                      value={report}
+                      onChangeText={setReport}
+                    />
+                    <Button
+                      title="Submit report"
+                      disabled={busy || report.trim().length < 3}
+                      onPress={() =>
+                        run(async () => {
+                          if (!db)
+                            throw new Error(
+                              "Reporting needs a connected account.",
+                            );
+                          const { error } = await db.from("reports").insert({
+                            reported_id: selected.driver_id,
+                            reason: report.trim(),
+                          });
+                          if (error) throw error;
+                          setReport("");
+                          setNotice("Report sent to administrators.");
+                        })
+                      }
+                    />
+                    <Button
+                      title="Block this driver"
+                      disabled={busy}
+                      onPress={() =>
+                        Alert.alert(
+                          "Block driver?",
+                          "Their rides will be hidden and new bookings prevented. Existing accepted bookings remain; cancel those separately if needed.",
+                          [
+                            { text: "Cancel", style: "cancel" },
+                            {
+                              text: "Block",
+                              onPress: () =>
+                                run(async () => {
+                                  if (db) {
+                                    const { error } = await db
+                                      .from("blocks")
+                                      .upsert({
+                                        blocked_id: selected.driver_id,
+                                      });
+                                    if (error) throw error;
+                                  } else
+                                    setBlocked((old) => [
+                                      ...old,
+                                      selected.driver_id,
+                                    ]);
+                                  setSelectedId(null);
+                                  setNotice("Driver blocked.");
+                                }),
+                            },
+                          ],
+                        )
+                      }
+                    />
+                  </View>
+                )}
+              </>
+            )}
+          </ScrollView>
+        </SafeAreaView>
+      </Modal>
+    </SafeAreaView>
+  );
 }
-const s=StyleSheet.create({screen:{flex:1,backgroundColor:'#f5f7f2'},content:{padding:24,paddingTop:48,maxWidth:650,width:'100%',alignSelf:'center'},top:{flexDirection:'row',justifyContent:'space-between',alignItems:'center',marginBottom:42},logo:{fontSize:32,fontWeight:'900',color:'#123c35',letterSpacing:-1},dot:{fontSize:14,color:'#e0ba5c'},badge:{fontSize:10,fontWeight:'700',color:'#52746b',letterSpacing:1},eyebrow:{fontSize:10,fontWeight:'800',color:'#26836c',letterSpacing:1.6,marginBottom:14},hero:{fontSize:41,lineHeight:46,fontWeight:'800',color:'#153f36',letterSpacing:-1.5},subtitle:{fontSize:16,color:'#627970',marginTop:12,marginBottom:24,lineHeight:24},tabs:{flexDirection:'row',backgroundColor:'#e7ede6',borderRadius:15,padding:5,marginVertical:24},tab:{flex:1,paddingVertical:13,borderRadius:11,alignItems:'center'},active:{backgroundColor:'#163f36'},tabText:{fontSize:12,fontWeight:'700',color:'#526b60'},panel:{backgroundColor:'white',borderRadius:22,padding:22,borderWidth:1,borderColor:'#e2e9df'},heading:{fontSize:21,fontWeight:'700',color:'#153f36',marginBottom:12},label:{fontSize:10,color:'#728478',fontWeight:'700',letterSpacing:1,marginBottom:7,marginTop:12},input:{backgroundColor:'#f4f6f1',borderRadius:12,padding:15,fontSize:16,color:'#153f36',borderWidth:1,borderColor:'#e4e9df'},link:{color:'#168568',fontSize:12,fontWeight:'700',paddingVertical:8},button:{backgroundColor:'#178168',padding:18,borderRadius:13,alignItems:'center',marginTop:20},buttonText:{color:'white',fontWeight:'700',fontSize:15},section:{flexDirection:'row',justifyContent:'space-between',alignItems:'center',marginTop:30},small:{fontSize:12,lineHeight:19,color:'#748377'},card:{backgroundColor:'white',padding:21,borderRadius:20,marginTop:14,borderWidth:1,borderColor:'#e2e9df'},row:{flexDirection:'row',justifyContent:'space-between',alignItems:'center'},time:{fontSize:15,fontWeight:'700',color:'#183e35'},price:{fontSize:24,fontWeight:'800',color:'#153f36'},route:{fontSize:19,fontWeight:'700',color:'#153f36',marginVertical:17},divider:{height:1,backgroundColor:'#edf0e8',marginBottom:12},driver:{fontSize:14,color:'#536a5c'},notice:{padding:16,backgroundColor:'#e3eee4',borderRadius:12,color:'#234c3d',marginTop:15,lineHeight:21},footer:{fontSize:16,fontWeight:'600',color:'#456654',marginTop:35,marginBottom:12},overlay:{flex:1,backgroundColor:'#0008',justifyContent:'flex-end'},sheet:{backgroundColor:'#f5f7f2',padding:28,borderTopLeftRadius:24,borderTopRightRadius:24}});
